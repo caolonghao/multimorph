@@ -1,1 +1,4 @@
 *.pyc
+data/baseline*
+/results
+training_outputs/

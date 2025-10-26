@@ -33,7 +33,10 @@ class FastNCC:
         assert ndims in [1, 2, 3], "volumes should be 1 to 3 dimensions. found: %d" % ndims
 
         # set window size
-        win = [9] * ndims if self.win is None else self.win
+        # ensure win is a list of length ndims
+        win = [9] * ndims if self.win is None else (
+            [self.win] * ndims if isinstance(self.win, int) else list(self.win)
+        )
 
         # compute filters
         # sum_filt = torch.ones([1, 1, *win]).to("cuda")
@@ -65,7 +68,7 @@ class FastNCC:
 
 
         # compute cross correlation
-        win_size = np.prod(self.win)
+        win_size = np.prod(win)
 
         cross = IJ_sum - J_sum/win_size*I_sum
         I_var = I2_sum - I_sum/win_size*I_sum

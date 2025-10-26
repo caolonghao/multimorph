@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from typing import Tuple
 import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform, apply_orientation
-
+from utils import torch_quantile
 import os
 
 import torch
@@ -364,9 +364,20 @@ class GroupDataLoader3D(GroupDataLoader):
         '''
         if pct > 1:
             pct = pct/100
-            
+        
         img_min = torch.min(image)
-        img_max = torch.quantile(image, pct)
+        
+        # 使用更稳定的quantile计算方法，避免"tensor too large"错误
+        try:
+            # 首先尝试标准的PyTorch quantile
+            # img_max = torch_quantile(image, pct)
+            img_max = torch.quantile(image, pct)
+        except RuntimeError:
+            # 如果失败，使用numpy percentile作为fallback（已验证有效）
+            image_np = image.detach().cpu().numpy()
+            img_max_np = np.percentile(image_np, pct * 100)
+            img_max = torch.tensor(img_max_np, dtype=image.dtype, device=image.device)
+        
         clipped_image = (image - img_min) / (img_max - img_min)
         clipped_image = torch.clamp(clipped_image, 0, 1)
         
