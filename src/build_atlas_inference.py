@@ -22,13 +22,13 @@ def warp_segmentation(segmentations: torch.Tensor,
     '''
     Warps segmentations to the atlas space, and aggregates them.
     Args:
-        segmentations: (B, G, C, H, W) torch.Tensor, segmentations to warp. One-hot representation.
-        warps: (B, G, 3, H, W) torch.Tensor, warps to apply to the segmentations (3D)
+        segmentations: (B, G, C, H, W, D) torch.Tensor, segmentations to warp. One-hot representation.
+        warps: (B, G, 3, H, W, D) torch.Tensor, warps to apply to the segmentations (3D)
         indices_to_warp: List[int], indices of segmentations to warp
         interpolation_mode: 'bilinear' or 'nearest'. Only use bilinear if segmentation is in one-hot format.
     Returns:
-        warped_segmentation: (B, G, C, H, W) torch.Tensor, warped segmentations
-        atlas_segmentation: (B, 1, 1, H, W) torch.Tensor, aggregated segmentations in the atlas
+        warped_segmentation: (B, G, C, H, W, D) torch.Tensor, warped segmentations
+        atlas_segmentation: (B, 1, C, H, W, D) torch.Tensor, aggregated segmentations in the atlas
     '''
     if len(segmentations.shape) == 5:
         img_size = segmentations.shape[-3:]
@@ -36,7 +36,8 @@ def warp_segmentation(segmentations: torch.Tensor,
         warps = warps.unsqueeze(0)
     else:
         img_size = segmentations.shape[-3:]
-        
+    
+    # 输出形状为 b n c h w d
     warp_layer = layers.group.Warp3d(img_size, mode=interpolation_mode) #if not use_atlasmorph else  layers.layers.SpatialTransformer(img_size, mode='bilinear')
     
     if interpolation_mode == 'nearest':
@@ -45,7 +46,8 @@ def warp_segmentation(segmentations: torch.Tensor,
             segmentations = torch.argmax(segmentations, dim=2, keepdim=True).to(torch.float)
         # warp the segmentations
         warped_segmentation = warp_layer(segmentations, warps)
-        atlas_segmentation= torch.mode(warped_segmentation, dim=1, keepdim=True)[0]
+        # TODO： 暂时改成mean以输出probability map
+        atlas_segmentation= torch.mean(warped_segmentation, dim=1, keepdim=True)[0]
     else:
         # make sure the segmentations are in one-hot format
         if segmentations.shape[2] == 1:
@@ -57,12 +59,13 @@ def warp_segmentation(segmentations: torch.Tensor,
 
     return warped_segmentation, atlas_segmentation
     
-def load_model(model_weights_path:str, img_size:list[int]):
+def load_model(model_weights_path:str, img_size:list[int], output_inverse_field: bool = False):
     '''
     Load the 3D MultiMorph model and weights. Currently only supports CPU, and a fixed instantiation of the model.
     Args:
         model_weights_path: path to the model weights file
         img_size: size of the input images, should be a list of 3 integers [depth, height, width]
+        output_inverse_field: whether to also output the inverse deformation field during inference
     Returns:
         mmnet: the MultiMorph model with the loaded weights
     Raises:
@@ -71,7 +74,7 @@ def load_model(model_weights_path:str, img_size:list[int]):
     mmnet = models.GroupNet3D(in_channels=1, out_channels=3,img_size=img_size,
                               features=[32,128,128,128],do_mean_conv=True,diffeo_steps=5,do_half_res=True,
                               subtract_mean=True, do_instancenorm=True,summary_stat='mean',
-                              checkpoint_model=False)
+                              checkpoint_model=False, output_inverse_field=output_inverse_field)
     
     # load the model weights
     if os.path.isfile(model_weights_path):
@@ -119,6 +122,10 @@ def build_atlas(model:torch.nn.Module, dataset:Dataset,
             
             
             start_time = time.time()
+            
+            print("image shape:", image.shape)
+            print("segmentation shape:", segmentation.shape)
+            
             # forward pass through the model. Get the warp field and warp the images.
             predicted_warp = model(image)
             warped_group = warp_layer(image, predicted_warp)
@@ -190,10 +197,10 @@ def wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Build atlas by inference on a pre-trained model')
     parser.add_argument('--model_path', type=str, default='./models/model_cvpr.pt', help='Path to the pre-trained model')
-    parser.add_argument('--atlas_save_path', default='results/', type=str, help='Path to save the atlas')
-    parser.add_argument('--csv_path', default='data/oasis_3d_data/metadata.csv', type=str, help='Path to the CSV file containing the list of images')
-    parser.add_argument('--img_header_name', type=str, default='img_path', help='Header name for the image column in the CSV file')
-    parser.add_argument('--segmentation_header_name', default=None, help='Header name for the segmentation column in the CSV file. \
+    parser.add_argument('--atlas_save_path', default='baseline_T1_results_weighted_last/', type=str, help='Path to save the atlas')
+    parser.add_argument('--csv_path', default='data/baseline_MRA_v2/metadata.csv', type=str, help='Path to the CSV file containing the list of images')
+    parser.add_argument('--img_header_name', type=str, default='weighted_T1_img_path', help='Header name for the image column in the CSV file')
+    parser.add_argument('--segmentation_header_name', default='segmentation_path', help='Header name for the segmentation column in the CSV file. \
                             Use None if no segmentations are provided.')
     args = parser.parse_args()
     

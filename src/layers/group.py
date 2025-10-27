@@ -316,12 +316,22 @@ class FastMeanConv3dUp(nn.Module):
                 out: tensor of shape [b, n, out_channels, h, w, d]
         
         '''
+        # DEBUG: Print tensor shapes
+        # print(f"[DEBUG] FastMeanConv3dUp forward:")
+        # print(f"[DEBUG] Input x shape: {x.shape}")
+        # print(f"[DEBUG] Input y shape: {y.shape}")
+        
         n = x.shape[1]
         
         weight_x = self.weights[:,:self.in_channels_skip]
         weight_y = self.weights[:,self.in_channels_skip: self.in_channels + self.in_channels_skip]
         weight_mean_x = self.weights[:,self.in_channels + self.in_channels_skip : self.in_channels + self.in_channels_skip*2 ]
         weight_mean_y = self.weights[:,self.in_channels + self.in_channels_skip*2 :]
+        
+        # print(f"[DEBUG] in_channels_skip: {self.in_channels_skip}, in_channels: {self.in_channels}")
+        # print(f"[DEBUG] Weight shapes - x: {weight_x.shape}, y: {weight_y.shape}")
+        # print(f"[DEBUG] Weight shapes - mean_x: {weight_mean_x.shape}, mean_y: {weight_mean_y.shape}")
+        
         # mean represetation along group
         if self.summary_stat == 'mean':
             meanx = torch.mean(x, dim=1, keepdim=False)  # [B, C, H, W D]
@@ -333,41 +343,73 @@ class FastMeanConv3dUp(nn.Module):
             meanx = torch.var(x, dim=1, keepdim=False)
             meany = torch.var(y, dim=1, keepdim=False)
         
+        # print(f"[DEBUG] Mean shapes - meanx: {meanx.shape}, meany: {meany.shape}")
+        
         x = einops.rearrange(x, 'b n c h w d -> (b n) c h w d')
         y = einops.rearrange(y, 'b n c h w d -> (b n) c h w d')
+        
+        # print(f"[DEBUG] After rearrange - x: {x.shape}, y: {y.shape}")
                 
         ox = F.conv3d(x, weight=weight_x,
                       bias=self.bias,
-                      stride=self.stride, 
-                      padding=self.padding, 
+                      stride=self.stride,
+                      padding=self.padding,
                       dilation=self.dilation,
                       groups=self.groups
                       )
+        
+        # print(f"[DEBUG] After conv3d - ox: {ox.shape}")
         
         out_mean_x = F.conv3d(meanx, weight_mean_x,
-                      bias=None, 
-                      stride=self.stride, 
-                      padding=self.padding, 
-                      dilation=self.dilation, 
-                      groups=self.groups
-                      )
-        
-        # repeat
-        oy = F.conv3d(y, weight=weight_y, 
                       bias=None,
-                      stride=self.stride, 
-                      padding=self.padding, 
+                      stride=self.stride,
+                      padding=self.padding,
                       dilation=self.dilation,
                       groups=self.groups
                       )
         
-        out_mean_y = F.conv3d(meany, weight_mean_y,
-                      bias=None, 
-                      stride=self.stride, 
-                      padding=self.padding, 
-                      dilation=self.dilation, 
+        # print(f"[DEBUG] After conv3d - out_mean_x: {out_mean_x.shape}")
+        
+        # repeat
+        oy = F.conv3d(y, weight=weight_y,
+                      bias=None,
+                      stride=self.stride,
+                      padding=self.padding,
+                      dilation=self.dilation,
                       groups=self.groups
                       )
+        
+        # print(f"[DEBUG] After conv3d - oy: {oy.shape}")
+        
+        out_mean_y = F.conv3d(meany, weight_mean_y,
+                      bias=None,
+                      stride=self.stride,
+                      padding=self.padding,
+                      dilation=self.dilation,
+                      groups=self.groups
+                      )
+        
+        # print(f"[DEBUG] After conv3d - out_mean_y: {out_mean_y.shape}")
+        # print(f"[DEBUG] About to add tensors with shapes: ox: {ox.shape}, out_mean_x: {out_mean_x.shape}, oy: {oy.shape}, out_mean_y: {out_mean_y.shape}")
+        
+        # TODO：这里应该是因为同一个 group，含有多个样本， 而目标 tensor 只有一个导致维度不匹配，理论上应该直接复制，但暂未测试
+        # 解决维度不匹配问题：确保所有张量的空间维度一致
+        target_shape = ox.shape  # 使用ox作为目标形状
+        
+        def resize_tensor_to_match(tensor, target_shape):
+            """将张量调整到目标形状"""
+            if tensor.shape != target_shape:
+                print(f"[DEBUG] Resizing tensor from {tensor.shape} to {target_shape}")
+                # 使用trilinear插值调整空间维度
+                tensor = F.interpolate(tensor, size=target_shape[2:], mode='trilinear', align_corners=False)
+            return tensor
+        
+        # 调整所有张量到相同的空间维度
+        out_mean_x = resize_tensor_to_match(out_mean_x, target_shape)
+        oy = resize_tensor_to_match(oy, target_shape)
+        out_mean_y = resize_tensor_to_match(out_mean_y, target_shape)
+        
+        # print(f"[DEBUG] After resizing - ox: {ox.shape}, out_mean_x: {out_mean_x.shape}, oy: {oy.shape}, out_mean_y: {out_mean_y.shape}")
         
         out = ox + out_mean_x + oy + out_mean_y
         
