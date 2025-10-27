@@ -86,6 +86,7 @@ def register_t1_to_mra_batch(base_dir, overwrite=False, num_workers=4):
     # 查找所有患者文件夹
     try:
         patient_folders = [f.path for f in os.scandir(base_dir) if f.is_dir()]
+        patient_folders = sorted(patient_folders)
     except FileNotFoundError:
         print(f"错误：基础目录 '{base_dir}' 不存在。")
         return
