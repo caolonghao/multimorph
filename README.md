@@ -36,6 +36,73 @@ We also include a tutorial notebook for running on inference on a pre-trained mo
 
 ## Training (Coming soon)
 
+## MultiMorph Deformation Scripts
+
+This repository includes two scripts for image warping using the MultiMorph framework:
+
+### 1. warp_to_atlas.py
+
+This script warps a subject image and segmentation mask into an atlas space using a pretrained MultiMorph model.
+
+**Usage:**
+```bash
+python multimorph/src/warp_to_atlas.py \
+  --model_path PATH_TO_MODEL \
+  --moving_image PATH_TO_MOVING_IMAGE \
+  --moving_segmentation PATH_TO_MOVING_SEGMENTATION \
+  --atlas_image PATH_TO_ATLAS_IMAGE \
+  --output_dir OUTPUT_DIRECTORY \
+  --divisor 16 \
+  --device DEVICE
+```
+
+**Arguments:**
+- `--model_path`: Path to pretrained MultiMorph weights
+- `--moving_image`: Path to the subject image to be warped
+- `--moving_segmentation`: Path to the subject segmentation mask
+- `--atlas_image`: Path to the atlas image defining the target space
+- `--output_dir`: Directory to store warped outputs
+- `--divisor`: Spatial padding divisor (default: 16)
+- `--device`: Torch device string (e.g., "cuda:0" or "cpu")
+
+**Output:**
+- `warped_image_to_atlas.nii.gz`: Warped image in atlas space
+- `warped_segmentation_to_atlas.nii.gz`: Warped segmentation in atlas space
+- `moving_to_atlas_displacement.nii.gz`: Deformation field used for warping
+
+### 2. warp_with_filed.py
+
+This script warps an image using a precomputed deformation field.
+
+**Usage:**
+```bash
+python multimorph/src/warp_with_filed.py \
+  --moving_image PATH_TO_MOVING_IMAGE \
+  --deformation_field PATH_TO_DEFORMATION_FIELD \
+  --reference_image PATH_TO_REFERENCE_IMAGE \
+  --output_path OUTPUT_PATH \
+  --interpolation INTERPOLATION_METHOD \
+  --device DEVICE
+```
+
+**Arguments:**
+- `--moving_image`: Path to the moving image to be warped
+- `--deformation_field`: Path to the deformation field (vector image)
+- `--reference_image`: Reference image defining the target space
+- `--output_path`: Output path for the warped image
+- `--interpolation`: Interpolation mode ('bilinear' or 'nearest', default: 'bilinear')
+- `--normalize`: Normalize the moving image to [0, 1] before warping
+- `--normalize_pct`: Upper percentile for normalization when --normalize is set (default: 0.998)
+- `--device`: Torch device string (e.g., "cuda:0" or "cpu")
+
+**Output:**
+- Warped image saved to the specified output path
+
+---
+
+skull striped 相关参数：
+- C3 Cohorts -f 0.215 -g 0.77
+
 ## Citation
 
 If you find the paper or repository useful, please consider citing:
