@@ -18,7 +18,7 @@ def process_patient(patient_dir, overwrite=False):
     try:
         # 1. 定义文件路径
         t1_path = os.path.join(patient_dir, 'T1', 'T1.nii.gz')
-        mra_path = os.path.join(patient_dir, 'Preprocessed', 'MRA', 'MRA_normalized_sum.nii.gz')
+        mra_path = os.path.join(patient_dir, 'TOF-MRA', 'MRA.nii.gz')
         mask_path = os.path.join(patient_dir, 'Preprocessed', 'MRA', 'MRA_brain_mask.nii.gz')
         
         output_dir = os.path.join(patient_dir, 'T1')
