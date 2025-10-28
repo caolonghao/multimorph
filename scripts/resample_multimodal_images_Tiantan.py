@@ -42,7 +42,7 @@ def process_patient(patient_dir: str, overwrite: bool, target_shape: Tuple[int, 
     try:
         # 1. 定义输入文件路径
         t1_in_path = Path(patient_dir) / "T1" / "T1_warped_to_MRA.nii.gz"
-        seg_in_path = Path(patient_dir) / "Prediction" / "MRA_vessel_pred.nii.gz"
+        seg_in_path = Path(patient_dir) / "Predictions" / "MRA_vessel_pred.nii.gz"
         mra_in_path = Path(patient_dir) / "TOF-MRA" / "MRA.nii.gz" # <-- 新增输入
         
         # 2. 定义输出文件路径
