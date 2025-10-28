@@ -23,13 +23,13 @@ def register_t1_to_mra(datashare_dir):
     subject_dirs = [d for d in datashare_path.iterdir() if d.is_dir()]
     subject_dirs.sort(key=lambda x: x.name)
     for subject_dir in subject_dirs:
-            t1_path = subject_dir / "T1" / "T1_warped_to_MRA.nii.gz"
-            mra_path = subject_dir / "TOF-MRA" / "MRA.nii.gz"
+            t1_path = subject_dir / "Resampled" / "T1_warped_resampled.nii.gz"
+            mra_path = subject_dir / "Resampled" / "MRA_resampled.nii.gz"
             
             # 检查T1.nii.gz和MRA.nii.gz是否存在
             if t1_path.exists() and mra_path.exists():
                 # 定义输出文件路径
-                t1_moved_path = subject_dir / "T1" / "T1_moved.nii.gz"
+                t1_moved_path = subject_dir / "T1" / "T1_synthmorph_resampled.nii.gz"
                 
                 # 构建命令
                 cmd = [

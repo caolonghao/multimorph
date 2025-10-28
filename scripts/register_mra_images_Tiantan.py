@@ -116,14 +116,18 @@ def validate_patient_data(source_dir: str, patient_id: str) -> Tuple[bool, str]:
         return False, f"患者目录不存在: {patient_dir}"
     
     # 检查必需的文件 (根据新文件结构)
-    mra_file = patient_dir / "TOF-MRA" / "MRA.nii.gz"
-    t1_file = patient_dir / "T1" / "T1_warped_to_MRA.nii.gz"
+    mra_file = patient_dir / "Resampled" / "MRA_resampled.nii.gz"
+    t1_file = patient_dir / "Resampled" / "T1_synthmorph_resampled.nii.gz"
+    seg_file = patient_dir / "Resampled" / "MRA_vessel_pred_resampled.nii.gz"
     
     if not mra_file.exists():
         return False, f"MRA文件不存在: {mra_file}"
     
     if not t1_file.exists():
         return False, f"T1文件不存在: {t1_file}"
+    
+    if not seg_file.exists():
+        return False, f"分割文件不存在: {seg_file}"
     
     return True, ""
 
@@ -254,19 +258,21 @@ def register_patient(
     
     # 设置文件路径
     source_path = Path(source_dir)
-    output_path = Path(output_dir) / patient_id
+    output_path = Path(output_dir) / patient_id / "Aligned"
     output_path.mkdir(parents=True, exist_ok=True)
     
     # (新) 定义输入文件路径
-    t1_input_path = source_path / patient_id / "T1" / "T1_warped_to_MRA.nii.gz"
-    mra_input_path = source_path / patient_id / "TOF-MRA" / "MRA.nii.gz"
+    t1_input_path = source_path / patient_id / "Resampled" / "T1_synthmorph_resampled.nii.gz"
+    mra_input_path = source_path / patient_id / "Resampled" / "MRA_resampled.nii.gz"
+    seg_input_path = source_path / patient_id / "Resampled" / "MRA_vessel_pred_resampled.nii.gz"
     
     # (新) 定义输出文件路径
     output_t1_path = output_path / "T1_registered_to_target.nii.gz"
     output_mra_path = output_path / "MRA_registered_to_target.nii.gz"
+    output_seg_path = output_path / "SEG_registered_to_target.nii.gz"
     
-    # 检查是否跳过 (检查 T1 和 MRA 是否都已存在)
-    if skip_existing and output_t1_path.exists() and output_mra_path.exists():
+    # 检查是否跳过 (检查 T1、MRA 和 SEG 是否都已存在)
+    if skip_existing and output_t1_path.exists() and output_mra_path.exists() and output_seg_path.exists():
         logger.info(f"跳过已存在的患者 (T1 和 MRA): {patient_id}")
         return True
     
@@ -294,13 +300,23 @@ def register_patient(
                 logger.info(f"复制目标患者 MRA: {output_mra_path}")
             else:
                 logger.info(f"目标患者 MRA 已存在: {output_mra_path}")
+
+            # 复制 SEG
+            if seg_input_path.exists():
+                if not output_seg_path.exists():
+                    shutil.copy(seg_input_path, output_seg_path)
+                    logger.info(f"复制目标患者 SEG: {output_seg_path}")
+                else:
+                    logger.info(f"目标患者 SEG 已存在: {output_seg_path}")
+            else:
+                logger.warning(f"目标患者未找到 SEG 文件: {seg_input_path}")
             
             return True
         
         # --- 对于其他患者，需要进行配准 ---
         
         # 1. 加载目标影像（固定影像）
-        target_mra_path = source_path / target_patient / "TOF-MRA" / "MRA.nii.gz"
+        target_mra_path = source_path / target_patient / "Resampled" / "MRA_resampled.nii.gz"
         fixed_image = load_image_safe(target_mra_path, logger)
         if fixed_image is None:
             logger.error(f"无法加载目标患者影像: {target_mra_path}")
@@ -309,10 +325,13 @@ def register_patient(
         # 2. 加载当前患者影像（移动影像）
         moving_mra_image = load_image_safe(mra_input_path, logger)
         moving_t1_image = load_image_safe(t1_input_path, logger)
+        moving_seg_image = load_image_safe(seg_input_path, logger)
         
         if moving_mra_image is None or moving_t1_image is None:
             logger.error(f"无法加载患者 {patient_id} 的 MRA 或 T1 影像文件")
             return False
+        if moving_seg_image is None:
+            logger.warning(f"未找到或无法加载患者 {patient_id} 的 SEG 影像，将跳过 SEG 变换: {seg_input_path}")
         
         # 3. 执行 MRA-to-MRA 配准
         reg_result = perform_registration(
@@ -358,6 +377,23 @@ def register_patient(
         # 保存 MRA
         ants.image_write(transformed_mra, str(output_mra_path))
         logger.info(f"保存 MRA 配准文件: {output_mra_path}")
+
+        # 6. 应用变换到 SEG 影像（使用最近邻插值以保持标签）
+        if moving_seg_image is not None:
+            logger.info("应用变换到 SEG 影像 (插值方法: nearestNeighbor)...")
+            transformed_seg = apply_transform_to_image(
+                moving_seg_image,
+                reg_result['fwdtransforms'],
+                fixed_image,
+                'nearestNeighbor',
+                logger
+            )
+
+            if transformed_seg is None:
+                logger.error(f"患者 {patient_id} SEG 变换应用失败")
+            else:
+                ants.image_write(transformed_seg, str(output_seg_path))
+                logger.info(f"保存 SEG 配准文件: {output_seg_path}")
         
         logger.info(f"患者 {patient_id} 处理完成")
         return True
