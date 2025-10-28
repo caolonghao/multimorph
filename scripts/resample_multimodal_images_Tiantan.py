@@ -230,7 +230,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 2. 设置多进程启动方法
-    multiprocessing.set_start_method('spawn', force=True)
+    multiprocessing.set_start_method('fork', force=True)
 
     # 3. 解析 --shape 参数
     try:
