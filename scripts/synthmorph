@@ -54,7 +54,7 @@ host = os.environ.get('SUBJECTS_DIR', os.getcwd())
 host = os.path.abspath(host)
 print(f'Will bind /mnt in image to SUBJECTS_DIR="{host}"')
 
-image = f'freesurfer/synthmorph:{version}'
+image = f'172.30.100.20:8444/freesurfer/synthmorph:{version}'
 if tool != 'docker':
     image = f'docker://{image}'
 
@@ -66,7 +66,7 @@ if tool != 'docker':
 # host user as we do for Docker, then these would get remapped according to
 # /etc/subuid outside, causing problems with read and write permissions.
 if tool in ('docker', 'podman'):
-    arg = ('run', '--rm', '-v', f'{host}:/mnt')
+    arg = ('run', '--rm', '-v', f'{host}:/mnt', '-v', '/data/MARVAL:/data/MARVAL', '-v', '/home/caolonghao:/home/caolonghao')
 
     # Pretty-print help text.
     if sys.stdout.isatty():
