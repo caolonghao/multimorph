@@ -168,7 +168,7 @@ if __name__ == "__main__":
         print("="*50)
     else:
         # 在 Windows 和 macOS 上, multiprocessing 默认使用 'spawn' 模式
-        multiprocessing.set_start_method('fork', force=True)
+        multiprocessing.set_start_method('spawn', force=True)
         
         # 5. 使用解析到的参数调用主函数
         register_t1_to_mra_batch(args.base_dir, args.overwrite, args.num_workers)
