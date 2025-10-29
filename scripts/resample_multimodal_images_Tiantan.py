@@ -6,7 +6,9 @@
 该脚本遍历患者文件夹，将 T1 图像、原始 MRA 图像和 MRA 血管分割
 批量重采样到指定的目标体素网格 (如 256x256x128)。
 
-它使用“参考网格”方法来确保重采样后的所有图像完美对齐。
+修正内容:
+- 使用正确的 interp_type 参数 (而非 interpolator)
+- 简化流程: 直接重采样到目标形状，无需创建中间参考网格
 """
 
 import ants
@@ -17,7 +19,7 @@ import argparse
 import logging
 import logging.handlers
 import sys
-from queue import Empty  # 用于队列监听器
+from queue import Empty
 from pathlib import Path
 from typing import Tuple
 
@@ -43,13 +45,13 @@ def process_patient(patient_dir: str, overwrite: bool, target_shape: Tuple[int, 
         # 1. 定义输入文件路径
         t1_in_path = Path(patient_dir) / "T1" / "T1_warped_to_MRA.nii.gz"
         seg_in_path = Path(patient_dir) / "Predictions" / "MRA_vessel_pred.nii.gz"
-        mra_in_path = Path(patient_dir) / "TOF-MRA" / "MRA.nii.gz" # <-- 新增输入
+        mra_in_path = Path(patient_dir) / "TOF-MRA" / "MRA.nii.gz"
         
         # 2. 定义输出文件路径
         output_dir = Path(patient_dir) / "Resampled"
         t1_out_path = output_dir / "T1_warped_resampled.nii.gz"
         seg_out_path = output_dir / "MRA_vessel_pred_resampled.nii.gz"
-        mra_out_path = output_dir / "MRA_resampled.nii.gz" # <-- 新增输出
+        mra_out_path = output_dir / "MRA_resampled.nii.gz"
         
         # 3. 创建输出目录
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -67,7 +69,7 @@ def process_patient(patient_dir: str, overwrite: bool, target_shape: Tuple[int, 
         required_files = {
             'T1': t1_in_path, 
             'Seg': seg_in_path, 
-            'MRA': mra_in_path # <-- 新增检查
+            'MRA': mra_in_path
         }
         missing_files = []
         for name, path in required_files.items():
@@ -79,58 +81,51 @@ def process_patient(patient_dir: str, overwrite: bool, target_shape: Tuple[int, 
             logger.warning(f"{log_prefix} FAILED: {error_msg}")
             return (patient_id, 'failed', error_msg)
 
-        # 6. --- 核心重采样逻辑 ---
+        # 6. 加载图像
         logger.info(f"{log_prefix} LOADING 图像...")
         t1_img = ants.image_read(str(t1_in_path))
         seg_img = ants.image_read(str(seg_in_path))
-        mra_img = ants.image_read(str(mra_in_path)) # <-- 新增加载
+        mra_img = ants.image_read(str(mra_in_path))
 
-        # 7. 创建目标参考网格 (Reference Grid)
-        # 我们使用 seg_img 作为基础来定义物理空间 (任选一个输入图像都行)
-        logger.info(f"{log_prefix} CREATING 参考网格 (Shape: {target_shape})...")
-        reference_grid = ants.resample_image(
+        # 7. 直接重采样 T1 到目标形状
+        logger.info(f"{log_prefix} RESAMPLING T1 (Interp: bSpline)...")
+        t1_resampled = ants.resample_image(
+            t1_img,
+            target_shape,
+            use_voxels=True,
+            interp_type=4  # 4 = bSpline (高质量，适合强度图像)
+        )
+
+        # 8. 直接重采样 Segmentation 到目标形状
+        logger.info(f"{log_prefix} RESAMPLING Seg (Interp: nearestNeighbor)...")
+        seg_resampled = ants.resample_image(
             seg_img,
             target_shape,
             use_voxels=True,
-            interpolator='nearestNeighbor'
+            interp_type=0  # 0 = nearestNeighbor (保持标签完整性)
         )
         
-        # 8. 重采样 T1 到参考网格
-        logger.info(f"{log_prefix} RESAMPLING T1 (Interpolator: bSpline)...")
-        t1_resampled = ants.resample_image_to_target(
-            t1_img,
-            reference_grid,
-            interpolator='bSpline'
-        )
-
-        # 9. 重采样 Segmentation 到参考网格
-        logger.info(f"{log_prefix} RESAMPLING Seg (Interpolator: nearestNeighbor)...")
-        seg_resampled = ants.resample_image_to_target(
-            seg_img,
-            reference_grid,
-            interpolator='nearestNeighbor'
-        )
-        
-        # 10. 重采样 MRA 到参考网格 (新增)
-        logger.info(f"{log_prefix} RESAMPLING MRA (Interpolator: bSpline)...")
-        mra_resampled = ants.resample_image_to_target(
+        # 9. 直接重采样 MRA 到目标形状
+        logger.info(f"{log_prefix} RESAMPLING MRA (Interp: bSpline)...")
+        mra_resampled = ants.resample_image(
             mra_img,
-            reference_grid,
-            interpolator='bSpline' # <-- 对强度图像使用 bSpline
+            target_shape,
+            use_voxels=True,
+            interp_type=4  # 4 = bSpline (高质量，适合强度图像)
         )
 
-        # 11. 保存结果
+        # 10. 保存结果
         logger.info(f"{log_prefix} SAVING 结果...")
         ants.image_write(t1_resampled, str(t1_out_path))
         ants.image_write(seg_resampled, str(seg_out_path))
-        ants.image_write(mra_resampled, str(mra_out_path)) # <-- 新增保存
+        ants.image_write(mra_resampled, str(mra_out_path))
         
         logger.info(f"{log_prefix} SUCCESS.")
         return (patient_id, 'success', None)
 
     except Exception as e:
         error_msg = f"发生意外错误: {e}"
-        logger.exception(f"{log_prefix} FAILED: {error_msg}") # 包含堆栈跟踪
+        logger.exception(f"{log_prefix} FAILED: {error_msg}")
         return (patient_id, 'failed', str(e))
 
 
@@ -230,7 +225,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 2. 设置多进程启动方法
-    multiprocessing.set_start_method('fork', force=True)
+    multiprocessing.set_start_method('spawn', force=True)
 
     # 3. 解析 --shape 参数
     try:
@@ -242,7 +237,7 @@ if __name__ == "__main__":
         print(f"错误: --shape 参数格式不正确: '{args.shape}'。必须是三个逗号分隔的整数, e.g., '256,256,128'")
         sys.exit(1)
 
-    # 4. *** 设置日志系统 ***
+    # 4. 设置日志系统
     log_queue = multiprocessing.Queue()
     log_file_path = args.log_file
     if log_file_path is None:
