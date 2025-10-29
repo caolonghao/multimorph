@@ -4,6 +4,7 @@
 import os
 import subprocess
 from pathlib import Path
+import argparse
 
 def register_t1_to_mra(datashare_dir):
     """
@@ -60,8 +61,9 @@ def register_t1_to_mra(datashare_dir):
                 print(f"跳过 {subject_dir.name}: 缺少 T1.nii.gz 或 MRA.nii.gz")
 
 if __name__ == "__main__":
-    # 设置datashare目录路径
-    datashare_dir = "./MRA_label_v2"
+    parser = argparse.ArgumentParser(description="将T1图像配准到MRA图像")
+    parser.add_argument("-d", "--datashare_dir", required=True, help="datashare目录路径")
+    args = parser.parse_args()
     
     # 运行配准函数
-    register_t1_to_mra(datashare_dir)
+    register_t1_to_mra(args.datashare_dir)
