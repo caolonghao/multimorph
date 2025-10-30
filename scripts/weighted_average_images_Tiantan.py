@@ -129,11 +129,11 @@ def process_patient_weighted_average(patient_dir: Path, alpha: float = 0.5):
     aligned_dir.mkdir(parents=True, exist_ok=True)
 
     # 定义输入文件路径（位于 Aligned 下）
-    input_t1_path = aligned_dir / "aligned_T1_resampled.nii.gz"
-    input_seg_path = aligned_dir / "aligned_T1_seg_resampled.nii.gz"
+    input_t1_path = aligned_dir / "T1_registered_to_target.nii.gz"
+    input_seg_path = aligned_dir / "SEG_registered_to_target.nii.gz"
     
     # 定义输出文件路径（同样位于 Aligned 下）
-    output_weighted_path = aligned_dir / "aligned_T1_resampled_weighted.nii.gz"
+    output_weighted_path = aligned_dir / "T1_registered_to_target_weighted.nii.gz"
     
     # 检查输出文件是否已存在
     if output_weighted_path.exists():
