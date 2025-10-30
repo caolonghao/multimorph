@@ -165,7 +165,7 @@ def perform_registration(
     Args:
         moving_image: 待配准影像 (MRA)
         fixed_image: 目标影像 (Target MRA)
-        registration_type: 配准类型 ('rigid', 'affine', 'SyNRA')
+        registration_type: 配准类型 ('Rigid', 'Affine', 'SyNRA')
         logger: 日志记录器
     
     Returns:
@@ -603,9 +603,9 @@ def main():
     parser.add_argument(
         '-r', '--registration_type',
         type=str,
-        choices=['rigid', 'affine', 'SyNRA', 'SyN', 'SyNCC'], # (新) 增加了 SyN 和 SyNCC
-        default='affine',
-        help='配准类型 (默认: affine)。'
+        choices=['Rigid', 'Affine', 'SyNRA', 'SyN', 'SyNCC'], # (新) 增加了 SyN 和 SyNCC
+        default='Affine',
+        help='配准类型 (默认: Affine)。'
              ' SyNRA/SyN/SyNCC 包含非线性配准。'
     )
     
