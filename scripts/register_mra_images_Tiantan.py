@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import traceback
 import shutil
+import json
 
 try:
     import ants
@@ -117,7 +118,7 @@ def validate_patient_data(source_dir: str, patient_id: str) -> Tuple[bool, str]:
     
     # 检查必需的文件 (根据新文件结构)
     mra_file = patient_dir / "Resampled" / "MRA_resampled.nii.gz"
-    t1_file = patient_dir / "Resampled" / "T1_synthmorph_resampled.nii.gz"
+    t1_file = patient_dir / "Resampled" / "T1_warped_resampled.nii.gz"
     seg_file = patient_dir / "Resampled" / "MRA_vessel_pred_resampled.nii.gz"
     
     if not mra_file.exists():
@@ -235,6 +236,104 @@ def apply_transform_to_image(
             logger.error(f"应用变换失败: {e}")
         return None
 
+def save_registration_transforms(
+    reg_result: Dict,
+    transform_output_dir: Path,
+    logger: logging.Logger
+) -> Tuple[List[Path], List[Path]]:
+    """
+    复制并持久化 ANTs 配准产生的变换文件到目标目录，并返回保存后的文件列表。
+
+    Args:
+        reg_result: ANTs registration 返回的结果字典
+        transform_output_dir: 变换文件保存目录
+        logger: 日志记录器
+
+    Returns:
+        (fwd_files, inv_files): 前向与反向变换文件的保存路径列表
+    """
+    transform_output_dir.mkdir(parents=True, exist_ok=True)
+
+    fwd_files: List[Path] = []
+    inv_files: List[Path] = []
+
+    # 保存前向变换
+    for i, tf in enumerate(reg_result.get('fwdtransforms', [])):
+        src = Path(str(tf))
+        if not src.exists():
+            logger.warning(f"前向变换文件不存在: {src}")
+            continue
+        dst = transform_output_dir / f"fwd_{i}_{src.name}"
+        try:
+            shutil.copy(src, dst)
+            fwd_files.append(dst)
+            logger.debug(f"保存前向变换: {dst}")
+        except Exception as e:
+            logger.error(f"复制前向变换失败 {src} -> {dst}: {e}")
+
+    # 保存反向变换
+    for i, tf in enumerate(reg_result.get('invtransforms', [])):
+        src = Path(str(tf))
+        if not src.exists():
+            logger.warning(f"反向变换文件不存在: {src}")
+            continue
+        dst = transform_output_dir / f"inv_{i}_{src.name}"
+        try:
+            shutil.copy(src, dst)
+            inv_files.append(dst)
+            logger.debug(f"保存反向变换: {dst}")
+        except Exception as e:
+            logger.error(f"复制反向变换失败 {src} -> {dst}: {e}")
+
+    return fwd_files, inv_files
+
+def write_transform_manifest(
+    manifest_path: Path,
+    moving_patient: str,
+    fixed_patient: str,
+    registration_type: str,
+    fwd_files: List[Path],
+    inv_files: List[Path],
+    image_interpolation: str,
+    seg_interpolation: str,
+    logger: logging.Logger,
+    identity: bool = False
+) -> None:
+    """
+    写出一个 JSON manifest，记录本次变换的关键信息，方便后续调用。
+
+    Args:
+        manifest_path: JSON 保存路径
+        moving_patient: 移动影像患者ID
+        fixed_patient: 固定影像患者ID
+        registration_type: 配准类型
+        fwd_files: 前向变换保存文件列表
+        inv_files: 反向变换保存文件列表
+        image_interpolation: 连续图像插值方法（MRA/T1）
+        seg_interpolation: 标签图插值方法（SEG）
+        logger: 日志记录器
+        identity: 是否为身份变换（目标患者）
+    """
+    data = {
+        "moving_patient": moving_patient,
+        "fixed_patient": fixed_patient,
+        "registration_type": registration_type,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "identity": identity,
+        "image_interpolation": image_interpolation,
+        "seg_interpolation": seg_interpolation,
+        "fwdtransforms": [p.name for p in (fwd_files or [])],
+        "invtransforms": [p.name for p in (inv_files or [])]
+    }
+
+    try:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f"变换清单已保存: {manifest_path}")
+    except Exception as e:
+        logger.error(f"写出变换清单失败: {e}")
+
 def register_patient(
     source_dir: str,
     target_patient: str,
@@ -262,7 +361,7 @@ def register_patient(
     output_path.mkdir(parents=True, exist_ok=True)
     
     # (新) 定义输入文件路径
-    t1_input_path = source_path / patient_id / "Resampled" / "T1_synthmorph_resampled.nii.gz"
+    t1_input_path = source_path / patient_id / "Resampled" / "T1_warped_resampled.nii.gz"
     mra_input_path = source_path / patient_id / "Resampled" / "MRA_resampled.nii.gz"
     seg_input_path = source_path / patient_id / "Resampled" / "MRA_vessel_pred_resampled.nii.gz"
     
@@ -270,9 +369,11 @@ def register_patient(
     output_t1_path = output_path / "T1_registered_to_target.nii.gz"
     output_mra_path = output_path / "MRA_registered_to_target.nii.gz"
     output_seg_path = output_path / "SEG_registered_to_target.nii.gz"
+    transform_dir = output_path / "Transforms"
+    manifest_path = transform_dir / "transform_manifest.json"
     
-    # 检查是否跳过 (检查 T1、MRA 和 SEG 是否都已存在)
-    if skip_existing and output_t1_path.exists() and output_mra_path.exists() and output_seg_path.exists():
+    # 检查是否跳过 (检查 T1、MRA、SEG 以及变换manifest 是否都已存在)
+    if skip_existing and output_t1_path.exists() and output_mra_path.exists() and output_seg_path.exists() and manifest_path.exists():
         logger.info(f"跳过已存在的患者 (T1 和 MRA): {patient_id}")
         return True
     
@@ -311,6 +412,20 @@ def register_patient(
             else:
                 logger.warning(f"目标患者未找到 SEG 文件: {seg_input_path}")
             
+            # 写入目标患者的身份变换 manifest（不含具体变换文件）
+            write_transform_manifest(
+                manifest_path=manifest_path,
+                moving_patient=patient_id,
+                fixed_patient=target_patient,
+                registration_type=registration_type,
+                fwd_files=[],
+                inv_files=[],
+                image_interpolation=interpolation,
+                seg_interpolation='nearestNeighbor',
+                logger=logger,
+                identity=True
+            )
+
             return True
         
         # --- 对于其他患者，需要进行配准 ---
@@ -341,6 +456,26 @@ def register_patient(
         if reg_result is None:
             logger.error(f"患者 {patient_id} MRA 配准失败")
             return False
+        
+        # 保存变换文件与清单，便于后续调用
+        logger.info("保存配准产生的变换文件与清单...")
+        fwd_files, inv_files = save_registration_transforms(
+            reg_result=reg_result,
+            transform_output_dir=transform_dir,
+            logger=logger
+        )
+        write_transform_manifest(
+            manifest_path=manifest_path,
+            moving_patient=patient_id,
+            fixed_patient=target_patient,
+            registration_type=registration_type,
+            fwd_files=fwd_files,
+            inv_files=inv_files,
+            image_interpolation=interpolation,
+            seg_interpolation='nearestNeighbor',
+            logger=logger,
+            identity=False
+        )
         
         # 4. 应用变换到 T1 影像
         logger.info(f"应用变换到 T1 影像 (插值方法: {interpolation})...")
