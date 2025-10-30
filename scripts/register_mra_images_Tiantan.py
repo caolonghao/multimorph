@@ -21,6 +21,7 @@ from typing import List, Tuple, Optional, Dict
 import traceback
 import shutil
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 try:
     import ants
@@ -341,8 +342,8 @@ def register_patient(
     output_dir: str,
     registration_type: str,
     interpolation: str,
-    logger: logging.Logger,
-    skip_existing: bool = True
+    logger: Optional[logging.Logger] = None,
+    overwrite: bool = False
 ) -> bool:
     """
     配准单个患者的影像 (MRA 和 T1)
@@ -353,6 +354,24 @@ def register_patient(
     Returns:
         是否成功
     """
+    # 若未提供logger，则创建患者级别的文件日志（适用于并行执行）
+    if logger is None:
+        try:
+            log_dir = Path(output_dir) / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            logger = logging.getLogger(f"MRA_Registration_{patient_id}")
+            logger.setLevel(logging.INFO)
+            if not logger.handlers:
+                fh = logging.FileHandler(log_dir / f"registration_{patient_id}.log", encoding='utf-8')
+                fh.setLevel(logging.DEBUG)
+                formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+                fh.setFormatter(formatter)
+                logger.addHandler(fh)
+        except Exception:
+            # 如果创建文件日志失败，回退到默认根日志
+            logger = logging.getLogger(f"MRA_Registration_{patient_id}")
+            logger.setLevel(logging.INFO)
+
     logger.info(f"开始处理患者: {patient_id}")
     
     # 设置文件路径
@@ -372,9 +391,9 @@ def register_patient(
     transform_dir = output_path / "Transforms"
     manifest_path = transform_dir / "transform_manifest.json"
     
-    # 检查是否跳过 (检查 T1、MRA、SEG 以及变换manifest 是否都已存在)
-    if skip_existing and output_t1_path.exists() and output_mra_path.exists() and output_seg_path.exists() and manifest_path.exists():
-        logger.info(f"跳过已存在的患者 (T1 和 MRA): {patient_id}")
+    # 检查是否跳过：默认跳过（overwrite=False），当输出与清单均存在时不重复计算
+    if (not overwrite) and output_t1_path.exists() and output_mra_path.exists() and output_seg_path.exists() and manifest_path.exists():
+        logger.info(f"已存在输出且未启用覆盖，跳过患者: {patient_id}")
         return True
     
     # 验证数据 (确保 MRA 和 T1 都存在)
@@ -550,10 +569,13 @@ def main():
   python register_script.py -s ./data -o ./registered_data -t P0048
   
   # 使用 SyNRA 配准
-  python register_script.py -s ./data -t P0117 -r SyNRA -o ./output --skip_existing
+  python register_script.py -s ./data -t P0117 -r SyNRA -o ./output
   
   # 仅处理5个患者用于测试
-  python register_script.py -s ./data -o ./test_output -t P0151 -m 5  
+  python register_script.py -s ./data -o ./test_output -t P0151 -m 5
+
+  # 并行处理（例如使用4个进程），并覆盖已存在输出
+  python register_script.py -s ./data -o ./output -t P0151 -r SyNRA -j 4 --overwrite
         """
     )
     
@@ -588,9 +610,16 @@ def main():
     )
     
     parser.add_argument(
-        '--skip_existing',
+        '--overwrite',
         action='store_true',
-        help='跳过已存在的文件 (会检查 MRA 和 T1 是否都已存在)'
+        help='覆盖已存在的输出（默认不覆盖，跳过已处理患者）'
+    )
+
+    parser.add_argument(
+        '-j', '--num_workers',
+        type=int,
+        default=1,
+        help='并行工作进程数量（默认: 1，顺序执行）'
     )
     
     parser.add_argument(
@@ -645,7 +674,8 @@ def main():
     logger.info(f"输出目录: {args.output_dir}")
     logger.info(f"配准类型: {args.registration_type}")
     logger.info(f"插值方法: {args.interpolation}")
-    logger.info(f"跳过已存在文件: {args.skip_existing}")
+    logger.info(f"覆盖已存在文件: {args.overwrite}")
+    logger.info(f"并行工作进程: {args.num_workers}")
     
     try:
         # 获取患者列表
@@ -665,41 +695,79 @@ def main():
         
         start_time = time.time()
         
-        # 逐个处理患者
-        for i, patient_id in enumerate(patient_list, 1):
-            logger.info(f"\n进度: [{i}/{len(patient_list)}] 处理患者 {patient_id}")
-            
-            success = register_patient(
-                args.source_dir,
-                args.target_patient,
-                patient_id,
-                args.output_dir,
-                args.registration_type,
-                args.interpolation,
-                logger,
-                args.skip_existing
-            )
-            
-            if success:
-                success_count += 1
-            else:
-                failed_count += 1
-                failed_patients.append(patient_id)
-            
-            # 显示进度
-            progress = (i / len(patient_list)) * 100
-            elapsed = time.time() - start_time
-            if i > 0:
-                estimated_total = elapsed / i * len(patient_list)
-                remaining = estimated_total - elapsed
-                logger.info(f"进度: {progress:.1f}% | "
-                           f"成功: {success_count} | "
-                           f"失败: {failed_count} | "
-                           f"剩余时间: {remaining/60:.1f}分钟")
-            else:
-                 logger.info(f"进度: {progress:.1f}% | "
-                           f"成功: {success_count} | "
-                           f"失败: {failed_count}")
+        # 并行或顺序处理患者
+        if args.num_workers and args.num_workers > 1:
+            logger.info("启用并行处理患者...")
+            completed = 0
+            total = len(patient_list)
+            with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+                future_to_patient = {
+                    executor.submit(
+                        register_patient,
+                        args.source_dir,
+                        args.target_patient,
+                        pid,
+                        args.output_dir,
+                        args.registration_type,
+                        args.interpolation,
+                        None,  # 子进程内部自建日志
+                        args.overwrite
+                    ): pid for pid in patient_list
+                }
+
+                for future in as_completed(future_to_patient):
+                    pid = future_to_patient[future]
+                    try:
+                        success = future.result()
+                    except Exception as e:
+                        logger.error(f"患者 {pid} 处理异常: {e}")
+                        success = False
+
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        failed_patients.append(pid)
+
+                    completed += 1
+                    progress = (completed / total) * 100
+                    elapsed = time.time() - start_time
+                    if completed > 0:
+                        estimated_total = elapsed / completed * total
+                        remaining = estimated_total - elapsed
+                        logger.info(f"进度: {progress:.1f}% | 成功: {success_count} | 失败: {failed_count} | 剩余时间: {remaining/60:.1f}分钟")
+                    else:
+                        logger.info(f"进度: {progress:.1f}% | 成功: {success_count} | 失败: {failed_count}")
+        else:
+            # 逐个处理患者（顺序执行）
+            for i, patient_id in enumerate(patient_list, 1):
+                logger.info(f"\n进度: [{i}/{len(patient_list)}] 处理患者 {patient_id}")
+                success = register_patient(
+                    args.source_dir,
+                    args.target_patient,
+                    patient_id,
+                    args.output_dir,
+                    args.registration_type,
+                    args.interpolation,
+                    logger,
+                    args.overwrite
+                )
+
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    failed_patients.append(patient_id)
+
+                # 显示进度
+                progress = (i / len(patient_list)) * 100
+                elapsed = time.time() - start_time
+                if i > 0:
+                    estimated_total = elapsed / i * len(patient_list)
+                    remaining = estimated_total - elapsed
+                    logger.info(f"进度: {progress:.1f}% | 成功: {success_count} | 失败: {failed_count} | 剩余时间: {remaining/60:.1f}分钟")
+                else:
+                    logger.info(f"进度: {progress:.1f}% | 成功: {success_count} | 失败: {failed_count}")
         
         # 输出最终统计
         total_time = time.time() - start_time
