@@ -222,12 +222,20 @@ class FastMeanConv3d(nn.Module):
                       groups=self.groups
                       )
         out_mean = F.conv3d(meanx, weight_mean,
-                    bias=None, 
-                    stride=self.stride, 
-                    padding=self.padding, 
-                    dilation=self.dilation, 
-                    groups=self.groups
-                    )
+                            bias=None,
+                            stride=self.stride,
+                            padding=self.padding,
+                            dilation=self.dilation,
+                            groups=self.groups
+                            )
+        if out_mean.shape[0] != ox.shape[0]:
+            if ox.shape[0] % out_mean.shape[0] != 0:
+                raise ValueError(
+                    f"Cannot broadcast mean contribution with shape {out_mean.shape} "
+                    f"to match group activations with shape {ox.shape}"
+                )
+            repeat_factor = ox.shape[0] // out_mean.shape[0]
+            out_mean = out_mean.repeat_interleave(repeat_factor, dim=0)
         out = ox + out_mean
 
         
@@ -361,12 +369,12 @@ class FastMeanConv3dUp(nn.Module):
         # print(f"[DEBUG] After conv3d - ox: {ox.shape}")
         
         out_mean_x = F.conv3d(meanx, weight_mean_x,
-                      bias=None,
-                      stride=self.stride,
-                      padding=self.padding,
-                      dilation=self.dilation,
-                      groups=self.groups
-                      )
+                              bias=None,
+                              stride=self.stride,
+                              padding=self.padding,
+                              dilation=self.dilation,
+                              groups=self.groups
+                              )
         
         # print(f"[DEBUG] After conv3d - out_mean_x: {out_mean_x.shape}")
         
@@ -382,32 +390,31 @@ class FastMeanConv3dUp(nn.Module):
         # print(f"[DEBUG] After conv3d - oy: {oy.shape}")
         
         out_mean_y = F.conv3d(meany, weight_mean_y,
-                      bias=None,
-                      stride=self.stride,
-                      padding=self.padding,
-                      dilation=self.dilation,
-                      groups=self.groups
-                      )
+                              bias=None,
+                              stride=self.stride,
+                              padding=self.padding,
+                              dilation=self.dilation,
+                              groups=self.groups
+                              )
         
         # print(f"[DEBUG] After conv3d - out_mean_y: {out_mean_y.shape}")
         # print(f"[DEBUG] About to add tensors with shapes: ox: {ox.shape}, out_mean_x: {out_mean_x.shape}, oy: {oy.shape}, out_mean_y: {out_mean_y.shape}")
-        
-        # TODO：这里应该是因为同一个 group，含有多个样本， 而目标 tensor 只有一个导致维度不匹配，理论上应该直接复制，但暂未测试
-        # 解决维度不匹配问题：确保所有张量的空间维度一致
-        target_shape = ox.shape  # 使用ox作为目标形状
-        
-        def resize_tensor_to_match(tensor, target_shape):
-            """将张量调整到目标形状"""
-            if tensor.shape != target_shape:
-                print(f"[DEBUG] Resizing tensor from {tensor.shape} to {target_shape}")
-                # 使用trilinear插值调整空间维度
-                tensor = F.interpolate(tensor, size=target_shape[2:], mode='trilinear', align_corners=False)
-            return tensor
-        
-        # 调整所有张量到相同的空间维度
-        out_mean_x = resize_tensor_to_match(out_mean_x, target_shape)
-        oy = resize_tensor_to_match(oy, target_shape)
-        out_mean_y = resize_tensor_to_match(out_mean_y, target_shape)
+        if out_mean_x.shape[0] != ox.shape[0]:
+            if ox.shape[0] % out_mean_x.shape[0] != 0:
+                raise ValueError(
+                    f"Cannot broadcast mean contribution with shape {out_mean_x.shape} "
+                    f"to match skip activations with shape {ox.shape}"
+                )
+            repeat_factor = ox.shape[0] // out_mean_x.shape[0]
+            out_mean_x = out_mean_x.repeat_interleave(repeat_factor, dim=0)
+        if out_mean_y.shape[0] != oy.shape[0]:
+            if oy.shape[0] % out_mean_y.shape[0] != 0:
+                raise ValueError(
+                    f"Cannot broadcast mean contribution with shape {out_mean_y.shape} "
+                    f"to match decoder activations with shape {oy.shape}"
+                )
+            repeat_factor = oy.shape[0] // out_mean_y.shape[0]
+            out_mean_y = out_mean_y.repeat_interleave(repeat_factor, dim=0)
         
         # print(f"[DEBUG] After resizing - ox: {ox.shape}, out_mean_x: {out_mean_x.shape}, oy: {oy.shape}, out_mean_y: {out_mean_y.shape}")
         
