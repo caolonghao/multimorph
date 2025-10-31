@@ -202,7 +202,7 @@ def wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Build atlas by inference on a pre-trained model')
     parser.add_argument('--model_path', type=str, default='./models/model_cvpr.pt', help='Path to the pre-trained model')
-    parser.add_argument('--atlas_save_path', default='baseline_T1_results_weighted_last/', type=str, help='Path to save the atlas')
+    parser.add_argument('--atlas_save_path', default='results/baseline_T1_results_weighted_last/', type=str, help='Path to save the atlas')
     parser.add_argument('--csv_path', default='data/baseline_MRA_v2/metadata.csv', type=str, help='Path to the CSV file containing the list of images')
     parser.add_argument('--img_header_name', type=str, default='weighted_T1_img_path', help='Header name for the image column in the CSV file')
     parser.add_argument('--segmentation_header_name', default='segmentation_path', help='Header name for the segmentation column in the CSV file. \
