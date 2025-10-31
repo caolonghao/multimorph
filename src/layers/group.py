@@ -212,8 +212,9 @@ class FastMeanConv3d(nn.Module):
         elif self.summary_stat == 'var':
             meanx = torch.var(x, dim=1, keepdim=False)
         
+        b = meanx.shape[0]
         x = einops.rearrange(x, 'b n c h w d -> (b n) c h w d')
-                
+
         ox = F.conv3d(x, weight=weight_x, 
                       bias=self.bias,
                       stride=self.stride, 
@@ -228,24 +229,18 @@ class FastMeanConv3d(nn.Module):
                             dilation=self.dilation,
                             groups=self.groups
                             )
-        if out_mean.shape[0] != ox.shape[0]:
-            if ox.shape[0] % out_mean.shape[0] != 0:
-                raise ValueError(
-                    f"Cannot broadcast mean contribution with shape {out_mean.shape} "
-                    f"to match group activations with shape {ox.shape}"
-                )
-            repeat_factor = ox.shape[0] // out_mean.shape[0]
-            out_mean = out_mean.repeat_interleave(repeat_factor, dim=0)
-        out = ox + out_mean
+        ox = einops.rearrange(ox, '(b n) c h w d -> b n c h w d', b=b, n=n)
+        out = ox + out_mean.unsqueeze(1)
+        out = einops.rearrange(out, 'b n c h w d -> (b n) c h w d')
 
-        
+
         if self.do_instancenorm:
             out = self.instance_norm(out)
             
         if self.do_activation:
             out = self.activation(out)
         
-        out = einops.rearrange(out, '(b n) c h w d -> b n c h w d', n=n)
+        out = einops.rearrange(out, '(b n) c h w d -> b n c h w d', b=b, n=n)
 
         return out
 
@@ -399,26 +394,11 @@ class FastMeanConv3dUp(nn.Module):
         
         # print(f"[DEBUG] After conv3d - out_mean_y: {out_mean_y.shape}")
         # print(f"[DEBUG] About to add tensors with shapes: ox: {ox.shape}, out_mean_x: {out_mean_x.shape}, oy: {oy.shape}, out_mean_y: {out_mean_y.shape}")
-        if out_mean_x.shape[0] != ox.shape[0]:
-            if ox.shape[0] % out_mean_x.shape[0] != 0:
-                raise ValueError(
-                    f"Cannot broadcast mean contribution with shape {out_mean_x.shape} "
-                    f"to match skip activations with shape {ox.shape}"
-                )
-            repeat_factor = ox.shape[0] // out_mean_x.shape[0]
-            out_mean_x = out_mean_x.repeat_interleave(repeat_factor, dim=0)
-        if out_mean_y.shape[0] != oy.shape[0]:
-            if oy.shape[0] % out_mean_y.shape[0] != 0:
-                raise ValueError(
-                    f"Cannot broadcast mean contribution with shape {out_mean_y.shape} "
-                    f"to match decoder activations with shape {oy.shape}"
-                )
-            repeat_factor = oy.shape[0] // out_mean_y.shape[0]
-            out_mean_y = out_mean_y.repeat_interleave(repeat_factor, dim=0)
-        
-        # print(f"[DEBUG] After resizing - ox: {ox.shape}, out_mean_x: {out_mean_x.shape}, oy: {oy.shape}, out_mean_y: {out_mean_y.shape}")
-        
-        out = ox + out_mean_x + oy + out_mean_y
+        b = meanx.shape[0]
+        ox = einops.rearrange(ox, '(b n) c h w d -> b n c h w d', b=b, n=n)
+        oy = einops.rearrange(oy, '(b n) c h w d -> b n c h w d', b=b, n=n)
+        out = ox + out_mean_x.unsqueeze(1) + oy + out_mean_y.unsqueeze(1)
+        out = einops.rearrange(out, 'b n c h w d -> (b n) c h w d')
         
         if self.do_instancenorm:
             out = self.instance_norm(out)
@@ -426,7 +406,7 @@ class FastMeanConv3dUp(nn.Module):
         if self.do_activation:
             out = self.activation(out)
         
-        out = einops.rearrange(out, '(b n) c h w d -> b n c h w d', n=n)
+        out = einops.rearrange(out, '(b n) c h w d -> b n c h w d', b=b, n=n)
         
         return out
 
