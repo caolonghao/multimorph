@@ -149,7 +149,7 @@ def build_atlas(model:torch.nn.Module, dataset:Dataset,
             
             return atlas, atlas_segmentation
 
-def wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, segmentation_header_name):
+def wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, segmentation_header_name, total_num_imgs=None):
     '''
     Main wrapper function to build the atlas by inference on a pre-trained model.
     This function loads the model and weights, loads the dataset from a CSV file,
@@ -169,6 +169,11 @@ def wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, 
     
     # load the CSV file with image paths
     csv_data = pd.read_csv(csv_path)
+    
+    # if total_num_imgs is specified, only use the first total_num_imgs images
+    if total_num_imgs is not None:
+        csv_data = csv_data.head(total_num_imgs)
+    
     # get the segmentation paths (if they exist)
     segmentations = csv_data[segmentation_header_name].tolist() if segmentation_header_name is not None else None
     
@@ -202,6 +207,9 @@ if __name__=='__main__':
     parser.add_argument('--img_header_name', type=str, default='weighted_T1_img_path', help='Header name for the image column in the CSV file')
     parser.add_argument('--segmentation_header_name', default='segmentation_path', help='Header name for the segmentation column in the CSV file. \
                             Use None if no segmentations are provided.')
+    parser.add_argument('--total_num_imgs', default=None, type=int, help='Total number of images to use for building the atlas. \
+                            Use None to use all images.')
+    
     args = parser.parse_args()
     
     model_path = args.model_path
@@ -210,4 +218,4 @@ if __name__=='__main__':
     img_header_name = args.img_header_name
     segmentation_header_name = args.segmentation_header_name
     
-    wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, segmentation_header_name)
+    wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, segmentation_header_name, args.total_num_imgs)
