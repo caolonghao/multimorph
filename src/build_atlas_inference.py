@@ -164,8 +164,11 @@ def wrapper_build_atlas(model_path, atlas_save_path, csv_path, img_header_name, 
         None, saves the atlas and segmentation to the specified path.
     '''
     
-    # get the device. Currently on supports CPU
+    # get the device. Currently only supports CPU
     device = torch.device('cpu')
+    
+    # ensure output directory exists
+    os.makedirs(atlas_save_path, exist_ok=True)
     
     # load the CSV file with image paths
     csv_data = pd.read_csv(csv_path)
