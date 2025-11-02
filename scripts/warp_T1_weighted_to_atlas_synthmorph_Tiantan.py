@@ -220,7 +220,7 @@ def main():
     -s /data/MARVAL/Precise/Baseline \
     --atlas_image /path/to/atlas.nii.gz \
     --synthmorph_cmd ./synthmorph \
-    -j 4 --overwrite --reg_strength 0.25 --mode joint
+    -j 4 --overwrite --reg_strength 0.5 --mode joint
         """
     )
 
@@ -228,7 +228,7 @@ def main():
     parser.add_argument('--atlas_image', type=str, required=True, help='Atlas 图像路径 (nii.gz)')
     parser.add_argument('--synthmorph_cmd', type=str, default='./synthmorph', help='SynthMorph 命令（例如 ./synthmorph 或 mri_synthmorph）')
     parser.add_argument('--mode', type=str, default='joint', choices=['joint', 'affine'], help='注册模式：joint(默认) 或 affine')
-    parser.add_argument('--reg_strength', type=float, default=0.25, help='变形正则强度（joint 模式有效，默认 0.25）')
+    parser.add_argument('--reg_strength', type=float, default=0.5, help='变形正则强度（joint 模式有效，默认 0.25）')
     parser.add_argument('-j', '--jobs', type=int, default=1, help='并行进程数 (默认: 1)')
     parser.add_argument('--overwrite', action='store_true', help='覆盖已存在的输出')
     parser.add_argument('--max_patients', type=int, default=None, help='仅处理前 N 个患者（测试用）')
