@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import zipfile
 import numpy as np
 import pandas as pd
-import layers
+from . import layers
 import pystrum
 import matplotlib.pyplot as plt
 

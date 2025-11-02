@@ -8,7 +8,7 @@ import torch.nn.functional as F
 os.environ['NEURITE_BACKEND'] = 'pytorch'
 os.environ['VXM_BACKEND'] = 'pytorch'
 #import voxelmorph as vxm 
-import layers
+from . import layers
 import copy
 from typing import Tuple, Callable, Optional, Dict, List
 import einops

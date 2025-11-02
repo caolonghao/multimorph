@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from typing import Tuple
 import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform, apply_orientation
-from utils import torch_quantile
+from .utils import torch_quantile
 import os
 
 import torch

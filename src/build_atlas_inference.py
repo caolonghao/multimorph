@@ -8,10 +8,10 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 import argparse
-import models
+from . import models
 import pandas as pd
-from dataloader import SubGroupLoader3D, PadtoDivisible
-import layers
+from .dataloader import SubGroupLoader3D, PadtoDivisible
+from . import layers
 from typing import Tuple
 import nibabel as nib
 
