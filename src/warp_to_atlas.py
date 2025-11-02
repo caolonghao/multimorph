@@ -9,8 +9,8 @@ import torch
 import torch.nn.functional as F
 import SimpleITK as sitk
 
-from layers.layers import DeformationFieldComposer, SpatialTransformer
-from build_atlas_inference import load_model
+from .layers.layers import DeformationFieldComposer, SpatialTransformer
+from .build_atlas_inference import load_model
 
 
 def _clip_and_normalize(image: torch.Tensor, pct: float = 0.998) -> torch.Tensor:
