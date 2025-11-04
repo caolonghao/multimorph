@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import SimpleITK as sitk
 
-from layers.layers import SpatialTransformer
+from layers import SpatialTransformer
 
 
 def _clip_and_normalize(image: torch.Tensor, pct: float = 0.998) -> torch.Tensor:
